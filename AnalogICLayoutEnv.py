@@ -1,0 +1,216 @@
+import gym
+from gym import spaces
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
+class AnalogICLayoutEnv(gym.Env):
+    """
+    A custom Gym environment for Analog IC Layout.
+
+    The environment is a grid where the agent places components. The goal is to
+    achieve a layout that is compact, symmetric, and respects connectivity constraints.
+    """
+    metadata = {'render.modes': ['human', 'rgb_array']}
+
+    def __init__(self, grid_size=20):
+        super().__init__()
+        
+        self.grid_size = grid_size
+        
+        # Component metadata and connections
+        self.components = self._generate_components()
+        self.num_components = len(self.components)
+        self.connections = self._define_connections()
+        
+        # Action: place component_id at (x, y)
+        self.action_space = spaces.Discrete(self.num_components * grid_size * grid_size)
+
+        # Define observation space: grid with cell values representing component IDs
+        self.observation_space = spaces.Dict({
+            "observation": spaces.Box(
+                low=0, high=self.num_components,
+                shape=(grid_size, grid_size), dtype=np.int8
+            ),
+            "action_mask": spaces.Box(low=0, high=1, shape=(self.action_space.n,), dtype=np.int8)
+        })
+        
+        self.reset()
+
+    def _generate_components(self):
+        """Defines the components to be placed in the layout."""
+        # Format: {"name": str, "id": int, "width": int, "height": int, "color": str, 
+        #          "can_overlap": bool, "type": str, "match_group": str/None}
+        return [
+            {"name": "nfet_d1", "id": 1, "width": 2, "height": 2, "color": "red", "can_overlap": False, "type": "nfet", "match_group": "diff_pair"},
+            {"name": "nfet_d2", "id": 2, "width": 2, "height": 2, "color": "red", "can_overlap": False, "type": "nfet", "match_group": "diff_pair"},
+            {"name": "pfet_m1", "id": 3, "width": 2, "height": 2, "color": "blue", "can_overlap": False, "type": "pfet", "match_group": "current_mirror"},
+            {"name": "pfet_m2", "id": 4, "width": 2, "height": 2, "color": "blue", "can_overlap": False, "type": "pfet", "match_group": "current_mirror"},
+            {"name": "cap", "id": 5, "width": 1, "height": 1, "color": "green", "can_overlap": True, "type": "cap", "match_group": None},
+        ]
+
+    def _define_connections(self):
+        """Defines which components should be close to each other (by ID)."""
+        return [(1, 3), (2, 4)] # nfet_d1 -> pfet_m1, nfet_d2 -> pfet_m2
+
+    def _get_action_mask(self):
+        """Generates a mask of valid actions."""
+        mask = np.ones(self.action_space.n, dtype=np.int8)
+        for i, comp in enumerate(self.components):
+            if comp["id"] in self.placed_cids:
+                start_idx = i * (self.grid_size * self.grid_size)
+                end_idx = (i + 1) * (self.grid_size * self.grid_size)
+                mask[start_idx:end_idx] = 0
+        return mask
+
+    def _get_obs(self):
+        """Returns the current observation dictionary."""
+        return {
+            "observation": self.grid.copy(),
+            "action_mask": self._get_action_mask()
+        }
+
+    def reset(self):
+        """Resets the environment to an initial state."""
+        self.grid = np.zeros((self.grid_size, self.grid_size), dtype=np.int8)
+        self.placements = {}  # cid -> (x, y)
+        self.placed_cids = set()
+        return self._get_obs()
+
+    def step(self, action):
+        """Executes one time step within the environment."""
+        comp_idx = action // (self.grid_size * self.grid_size)
+        
+        # This should not happen with a valid policy, but as a safeguard:
+        if comp_idx >= self.num_components:
+            return self._get_obs(), -100, True, {"error": "Invalid component index"}
+
+        comp = self.components[comp_idx]
+        cid = comp["id"]
+
+        if cid in self.placed_cids:
+            # This should not happen with a correct action mask, but as a safeguard
+            return self._get_obs(), -100, True, {"error": "Agent chose an already placed component"}
+
+        flat_pos = action % (self.grid_size * self.grid_size)
+        x, y = divmod(flat_pos, self.grid_size)
+        
+        w, h = comp["width"], comp["height"]
+
+        # Check bounds
+        if x + h > self.grid_size or y + w > self.grid_size:
+            return self._get_obs(), -10.0, False, {}
+
+        # Check overlap for non-overlapping components
+        region = self.grid[x:x+h, y:y+w]
+        if not comp["can_overlap"] and np.any(region != 0):
+            return self._get_obs(), -10.0, False, {}
+
+        # Place component
+        self.grid[x:x+h, y:y+w] = cid
+        self.placements[cid] = (x, y)
+        self.placed_cids.add(cid)
+
+        done = len(self.placed_cids) == self.num_components
+        reward = self._calculate_reward() if done else 0.1 # Small reward for each valid placement
+
+        return self._get_obs(), reward, done, {}
+
+    def _calculate_reward(self):
+        """Calculates the reward for the current layout."""
+        if not self.placements:
+            return 0
+
+        reward = 0
+        
+        # 1. Compactness Reward (penalize large bounding box)
+        min_x, max_x = self.grid_size, 0
+        min_y, max_y = self.grid_size, 0
+        
+        for cid, (px, py) in self.placements.items():
+            comp = next(c for c in self.components if c["id"] == cid)
+            w, h = comp["width"], comp["height"]
+            min_x = min(min_x, px)
+            max_x = max(max_x, px + h)
+            min_y = min(min_y, py)
+            max_y = max(max_y, py + w)
+            
+        compactness_penalty = (max_x - min_x) * (max_y - min_y)
+        reward -= 0.1 * compactness_penalty
+
+        # 2. Symmetry Reward
+        match_groups = {}
+        for comp in self.components:
+            if comp["match_group"]:
+                if comp["match_group"] not in match_groups:
+                    match_groups[comp["match_group"]] = []
+                match_groups[comp["match_group"]].append(comp["id"])
+
+        for group, cids in match_groups.items():
+            if len(cids) == 2 and all(c in self.placements for c in cids):
+                cid1, cid2 = cids
+                comp1 = next(c for c in self.components if c["id"] == cid1)
+                comp2 = next(c for c in self.components if c["id"] == cid2)
+                x1, y1 = self.placements[cid1]
+                x2, y2 = self.placements[cid2]
+
+                # Check for vertical symmetry around the center
+                is_symmetric = (x1 == x2 and 
+                                (y1 + comp1["width"] / 2) == (self.grid_size - (y2 + comp2["width"] / 2)))
+                if is_symmetric:
+                    reward += 20
+
+        # 3. Connectivity Reward (penalize distance between connected components)
+        for cid1, cid2 in self.connections:
+            if cid1 in self.placements and cid2 in self.placements:
+                x1, y1 = self.placements[cid1]
+                x2, y2 = self.placements[cid2]
+                comp1 = next(c for c in self.components if c["id"] == cid1)
+                comp2 = next(c for c in self.components if c["id"] == cid2)
+                
+                center1 = (x1 + comp1["height"] / 2, y1 + comp1["width"] / 2)
+                center2 = (x2 + comp2["height"] / 2, y2 + comp2["width"] / 2)
+                
+                # Manhattan distance
+                dist = abs(center1[0] - center2[0]) + abs(center1[1] - center2[1])
+                reward -= 0.5 * dist
+
+        return reward
+
+    def render(self, mode="human"):
+        """Renders the environment."""
+        if not self.placements:
+            print("No components placed yet.")
+            return
+
+        fig, ax = plt.subplots(1, figsize=(8, 8))
+        ax.set_xlim(0, self.grid_size)
+        ax.set_ylim(0, self.grid_size)
+        ax.set_xticks(np.arange(0, self.grid_size + 1, 1))
+        ax.set_yticks(np.arange(0, self.grid_size + 1, 1))
+        ax.grid(True)
+        ax.set_aspect('equal')
+        ax.set_title("Analog IC Layout")
+
+        for cid, (x, y) in self.placements.items():
+            comp = next(c for c in self.components if c["id"] == cid)
+            w, h = comp["width"], comp["height"]
+            color = comp["color"]
+            
+            # matplotlib origin is bottom-left, our grid origin is top-left.
+            # Rect: (y, grid_size - x - h)
+            rect = patches.Rectangle((y, self.grid_size - x - h), w, h, 
+                                     linewidth=1.5, edgecolor='black', facecolor=color, alpha=0.7)
+            ax.add_patch(rect)
+            ax.text(y + w/2, self.grid_size - x - h/2, comp["name"], 
+                    ha='center', va='center', fontsize=8, weight='bold')
+
+        if mode == "human":
+            plt.show()
+        elif mode == "rgb_array":
+            fig.canvas.draw()
+            img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+            img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            plt.close(fig)
+            return img
+
