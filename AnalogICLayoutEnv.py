@@ -1,8 +1,38 @@
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+
+try:
+    from config import DEFAULT_COMPONENTS, DEFAULT_CONNECTIONS, REWARD_WEIGHTS
+except ImportError:
+    # Fallback if config file is not available
+    DEFAULT_COMPONENTS = [
+        {"name": "nfet_d1", "id": 1, "width": 2, "height": 2, "color": "red", "can_overlap": False, "type": "nfet", "match_group": "diff_pair"},
+        {"name": "nfet_d2", "id": 2, "width": 2, "height": 2, "color": "red", "can_overlap": False, "type": "nfet", "match_group": "diff_pair"},
+        {"name": "pfet_m1", "id": 3, "width": 2, "height": 2, "color": "blue", "can_overlap": False, "type": "pfet", "match_group": "current_mirror"},
+        {"name": "pfet_m2", "id": 4, "width": 2, "height": 2, "color": "blue", "can_overlap": False, "type": "pfet", "match_group": "current_mirror"},
+        {"name": "cap", "id": 5, "width": 1, "height": 1, "color": "green", "can_overlap": True, "type": "cap", "match_group": None},
+    ]
+    DEFAULT_CONNECTIONS = [(1, 3), (2, 4)]
+    REWARD_WEIGHTS = {
+        "compactness": 0.1,
+        "symmetry": 20.0,
+        "connectivity": 0.5,
+        "valid_placement": 1.0,
+        "incremental_connectivity": 2.0,
+        "incremental_symmetry": 1.0,
+    }
+    DEFAULT_COMPONENTS = [
+        {"name": "nfet_d1", "id": 1, "width": 2, "height": 2, "color": "red", "can_overlap": False, "type": "nfet", "match_group": "diff_pair"},
+        {"name": "nfet_d2", "id": 2, "width": 2, "height": 2, "color": "red", "can_overlap": False, "type": "nfet", "match_group": "diff_pair"},
+        {"name": "pfet_m1", "id": 3, "width": 2, "height": 2, "color": "blue", "can_overlap": False, "type": "pfet", "match_group": "current_mirror"},
+        {"name": "pfet_m2", "id": 4, "width": 2, "height": 2, "color": "blue", "can_overlap": False, "type": "pfet", "match_group": "current_mirror"},
+        {"name": "cap", "id": 5, "width": 1, "height": 1, "color": "green", "can_overlap": True, "type": "cap", "match_group": None},
+    ]
+    DEFAULT_CONNECTIONS = [(1, 3), (2, 4)]
+    REWARD_WEIGHTS = {"compactness": 0.1, "symmetry": 20.0, "connectivity": 0.5, "valid_placement": 1.0, "incremental_connectivity": 2.0, "incremental_symmetry": 1.0}
 
 class AnalogICLayoutEnv(gym.Env):
     """
@@ -39,19 +69,11 @@ class AnalogICLayoutEnv(gym.Env):
 
     def _generate_components(self):
         """Defines the components to be placed in the layout."""
-        # Format: {"name": str, "id": int, "width": int, "height": int, "color": str, 
-        #          "can_overlap": bool, "type": str, "match_group": str/None}
-        return [
-            {"name": "nfet_d1", "id": 1, "width": 2, "height": 2, "color": "red", "can_overlap": False, "type": "nfet", "match_group": "diff_pair"},
-            {"name": "nfet_d2", "id": 2, "width": 2, "height": 2, "color": "red", "can_overlap": False, "type": "nfet", "match_group": "diff_pair"},
-            {"name": "pfet_m1", "id": 3, "width": 2, "height": 2, "color": "blue", "can_overlap": False, "type": "pfet", "match_group": "current_mirror"},
-            {"name": "pfet_m2", "id": 4, "width": 2, "height": 2, "color": "blue", "can_overlap": False, "type": "pfet", "match_group": "current_mirror"},
-            {"name": "cap", "id": 5, "width": 1, "height": 1, "color": "green", "can_overlap": True, "type": "cap", "match_group": None},
-        ]
+        return DEFAULT_COMPONENTS.copy()
 
     def _define_connections(self):
         """Defines which components should be close to each other (by ID)."""
-        return [(1, 3), (2, 4)] # nfet_d1 -> pfet_m1, nfet_d2 -> pfet_m2
+        return DEFAULT_CONNECTIONS.copy()
 
     def _get_action_mask(self):
         """Generates a mask of valid actions."""
@@ -70,12 +92,16 @@ class AnalogICLayoutEnv(gym.Env):
             "action_mask": self._get_action_mask()
         }
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         """Resets the environment to an initial state."""
+        super().reset(seed=seed)
+        if seed is not None:
+            np.random.seed(seed)
+            
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=np.int8)
         self.placements = {}  # cid -> (x, y)
         self.placed_cids = set()
-        return self._get_obs()
+        return self._get_obs(), {}
 
     def step(self, action):
         """Executes one time step within the environment."""
@@ -83,14 +109,14 @@ class AnalogICLayoutEnv(gym.Env):
         
         # This should not happen with a valid policy, but as a safeguard:
         if comp_idx >= self.num_components:
-            return self._get_obs(), -100, True, {"error": "Invalid component index"}
+            return self._get_obs(), -100, True, False, {"error": "Invalid component index"}
 
         comp = self.components[comp_idx]
         cid = comp["id"]
 
         if cid in self.placed_cids:
             # This should not happen with a correct action mask, but as a safeguard
-            return self._get_obs(), -100, True, {"error": "Agent chose an already placed component"}
+            return self._get_obs(), -100, True, False, {"error": "Agent chose an already placed component"}
 
         flat_pos = action % (self.grid_size * self.grid_size)
         x, y = divmod(flat_pos, self.grid_size)
@@ -99,12 +125,12 @@ class AnalogICLayoutEnv(gym.Env):
 
         # Check bounds
         if x + h > self.grid_size or y + w > self.grid_size:
-            return self._get_obs(), -10.0, False, {}
+            return self._get_obs(), -10.0, False, False, {}
 
         # Check overlap for non-overlapping components
         region = self.grid[x:x+h, y:y+w]
         if not comp["can_overlap"] and np.any(region != 0):
-            return self._get_obs(), -10.0, False, {}
+            return self._get_obs(), -10.0, False, False, {}
 
         # Place component
         self.grid[x:x+h, y:y+w] = cid
@@ -112,9 +138,19 @@ class AnalogICLayoutEnv(gym.Env):
         self.placed_cids.add(cid)
 
         done = len(self.placed_cids) == self.num_components
-        reward = self._calculate_reward() if done else 0.1 # Small reward for each valid placement
+        
+        # Calculate intermediate rewards for better learning
+        reward = REWARD_WEIGHTS["valid_placement"]  # Base reward for valid placement
+        
+        # Add incremental reward based on current layout quality
+        if len(self.placed_cids) > 1:
+            reward += self._calculate_incremental_reward()
+        
+        # Final comprehensive reward when all components are placed
+        if done:
+            reward += self._calculate_reward()
 
-        return self._get_obs(), reward, done, {}
+        return self._get_obs(), reward, done, False, {}
 
     def _calculate_reward(self):
         """Calculates the reward for the current layout."""
@@ -136,7 +172,7 @@ class AnalogICLayoutEnv(gym.Env):
             max_y = max(max_y, py + w)
             
         compactness_penalty = (max_x - min_x) * (max_y - min_y)
-        reward -= 0.1 * compactness_penalty
+        reward -= REWARD_WEIGHTS["compactness"] * compactness_penalty
 
         # 2. Symmetry Reward
         match_groups = {}
@@ -158,7 +194,7 @@ class AnalogICLayoutEnv(gym.Env):
                 is_symmetric = (x1 == x2 and 
                                 (y1 + comp1["width"] / 2) == (self.grid_size - (y2 + comp2["width"] / 2)))
                 if is_symmetric:
-                    reward += 20
+                    reward += REWARD_WEIGHTS["symmetry"]
 
         # 3. Connectivity Reward (penalize distance between connected components)
         for cid1, cid2 in self.connections:
@@ -173,8 +209,50 @@ class AnalogICLayoutEnv(gym.Env):
                 
                 # Manhattan distance
                 dist = abs(center1[0] - center2[0]) + abs(center1[1] - center2[1])
-                reward -= 0.5 * dist
+                reward -= REWARD_WEIGHTS["connectivity"] * dist
 
+        return reward
+
+    def _calculate_incremental_reward(self):
+        """Calculate incremental rewards during placement for better learning."""
+        reward = 0
+        
+        # Connectivity reward for each placement
+        for cid1, cid2 in self.connections:
+            if cid1 in self.placements and cid2 in self.placements:
+                x1, y1 = self.placements[cid1]
+                x2, y2 = self.placements[cid2]
+                comp1 = next(c for c in self.components if c["id"] == cid1)
+                comp2 = next(c for c in self.components if c["id"] == cid2)
+                
+                center1 = (x1 + comp1["height"] / 2, y1 + comp1["width"] / 2)
+                center2 = (x2 + comp2["height"] / 2, y2 + comp2["width"] / 2)
+                
+                # Reward close placement of connected components
+                dist = abs(center1[0] - center2[0]) + abs(center1[1] - center2[1])
+                if dist <= 4:  # Close enough
+                    reward += REWARD_WEIGHTS["incremental_connectivity"]
+                elif dist <= 8:  # Moderately close
+                    reward += REWARD_WEIGHTS["incremental_connectivity"] / 2
+                    
+        # Partial symmetry rewards
+        match_groups = {}
+        for comp in self.components:
+            if comp["match_group"]:
+                if comp["match_group"] not in match_groups:
+                    match_groups[comp["match_group"]] = []
+                match_groups[comp["match_group"]].append(comp["id"])
+
+        for group, cids in match_groups.items():
+            if len(cids) == 2 and all(c in self.placements for c in cids):
+                cid1, cid2 = cids
+                x1, y1 = self.placements[cid1]
+                x2, y2 = self.placements[cid2]
+                
+                # Reward if they are at same x level (step toward symmetry)
+                if x1 == x2:
+                    reward += REWARD_WEIGHTS["incremental_symmetry"]
+                    
         return reward
 
     def render(self, mode="human"):

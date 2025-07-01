@@ -1,6 +1,7 @@
 from AnalogICLayoutEnv import AnalogICLayoutEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
+from layout_analyzer import LayoutAnalyzer
 
 env = AnalogICLayoutEnv(grid_size=20)
 # check_env(env)
@@ -19,17 +20,19 @@ model = PPO(
     ent_coef=0.01
 )
 
-# Train the agent
-model.learn(total_timesteps=50000)
+# Train the agent with more timesteps and better hyperparameters
+model.learn(total_timesteps=100000)
 
+# Add timeout to prevent infinite loops
 print("\n--- Evaluating Trained Model ---")
-obs = env.reset()
+obs, info = env.reset()
 done = False
 step = 0
+MAX_STEPS = 100  # Safety limit
 
 # The environment will now only terminate when all components are placed.
 # Step through the placement process with the trained agent.
-while not done:
+while not done and step < MAX_STEPS:
     step += 1
     action, _states = model.predict(obs, deterministic=True)
     
@@ -41,11 +44,11 @@ while not done:
 
     print(f"Step {step}: Agent tries to place {comp_name}...")
     
-    obs, reward, done, info = env.step(action.item())
+    obs, reward, done, truncated, info = env.step(action.item())
 
     # Access the observation from the dictionary
     if isinstance(obs, dict) and 'observation' in obs:
-        # to see the grid uncomment:
+        # For logging or other purposes, you might want to see the grid
         # grid_observation = obs['observation']
         pass
 
@@ -54,7 +57,10 @@ while not done:
         print(f"  -> Info: {info}")
 
 print(f"\nEvaluation finished after {step} steps.")
-print(f"Final layout reward: {env._calculate_reward()}")
+
+# Comprehensive analysis
+analyzer = LayoutAnalyzer(env)
+analyzer.analyze_layout()
 
 # Render the final layout
 print("Rendering final layout...")

@@ -1,4 +1,9 @@
 /AICRL
 /ppo_tensorboard
 /__pycache__
+/logs
 *.pyc
+/models
+advanced_training.py
+config.py
+curriculum_trainer.py
