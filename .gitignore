@@ -4,6 +4,8 @@
 /logs
 *.pyc
 /models
+/reports
+/output
 advanced_training.py
 config.py
 curriculum_trainer.py

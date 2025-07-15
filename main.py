@@ -2,6 +2,12 @@ from AnalogICLayoutEnv import AnalogICLayoutEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from layout_analyzer import LayoutAnalyzer
+from enhanced_visualizer import EnhancedLayoutVisualizer
+import os
+
+# Create output directories if they don't exist
+os.makedirs("./output", exist_ok=True)
+os.makedirs("./reports", exist_ok=True)
 
 env = AnalogICLayoutEnv(grid_size=20)
 # check_env(env)
@@ -21,7 +27,7 @@ model = PPO(
 )
 
 # Train the agent with more timesteps and better hyperparameters
-model.learn(total_timesteps=100000)
+model.learn(total_timesteps=5000)
 
 # Add timeout to prevent infinite loops
 print("\n--- Evaluating Trained Model ---")
@@ -62,7 +68,21 @@ print(f"\nEvaluation finished after {step} steps.")
 analyzer = LayoutAnalyzer(env)
 analyzer.analyze_layout()
 
-# Render the final layout
-print("Rendering final layout...")
-env.render(mode='human')
+# Enhanced visualization with professional styling
+print("Creating enhanced visualization...")
+visualizer = EnhancedLayoutVisualizer(style='professional')
+
+# Generate professional layout visualization
+print("Generating professional layout visualization...")
+visualizer.render_layout_professional(env, save_path="./output/trained_model_layout.png", show_metrics=True)
+
+# Generate training progress visualization
+print("Generating training progress visualization...")
+visualizer.plot_training_progress(tensorboard_log_dir="./ppo_tensorboard/", save_path="./output/training_progress.png")
+
+# Generate comprehensive training report
+print("Generating comprehensive training report...")
+visualizer.create_training_report(env, save_dir="./reports")
+
+print("\nVisualization complete! Check the ./output/ and ./reports/ directories for generated files.")
 
