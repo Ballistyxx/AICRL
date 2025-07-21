@@ -55,7 +55,7 @@ model = PPO(
 )
 
 # Train the agent with more timesteps and better hyperparameters
-model.learn(total_timesteps=5000)
+model.learn(total_timesteps=2000000)
 
 # Add timeout to prevent infinite loops
 print("\n--- Evaluating Trained Model ---")
