@@ -15,9 +15,29 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import sys
 import os
+from pathlib import Path
 
 # Add the current directory to Python path for module imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
+
+# Ensure access to virtual environment packages
+def ensure_venv_access():
+    """Ensure access to virtual environment packages."""
+    try:
+        import stable_baselines3
+    except ImportError:
+        # Try to add venv site-packages to path
+        venv_site_packages = Path(current_dir) / "AICRL" / "lib" / "python3.10" / "site-packages"
+        
+        if venv_site_packages.exists():
+            sys.path.insert(0, str(venv_site_packages))
+            print(f"✓ Added venv path for GUI: {venv_site_packages}")
+        else:
+            print(f"⚠️  Virtual environment not found at: {venv_site_packages}")
+
+# Ensure venv access on startup
+ensure_venv_access()
 
 # Import our custom modules
 from modules.schematic_import import SchematicImportModule
@@ -255,7 +275,38 @@ class AICRLMainGUI:
             result = self.schematic_module.import_schematic()
             if result:
                 self.update_status("Schematic imported successfully!")
-                messagebox.showinfo("Success", "Schematic file imported successfully!")
+                
+                # Pass schematic data to training module
+                schematic_data = self.schematic_module.get_schematic_data()
+                if schematic_data:
+                    # Convert to RL-compatible format
+                    rl_compatible_data = self.schematic_module.get_rl_compatible_data()
+                    if rl_compatible_data:
+                        # Pass both raw and RL-compatible data
+                        self.training_module.set_schematic_data(rl_compatible_data)
+                        
+                        # Get statistics for user feedback
+                        stats = rl_compatible_data.get("statistics", {})
+                        components = stats.get("total_components", 0)
+                        nets = stats.get("total_nets", 0)
+                        connections = stats.get("total_connections", 0)
+                        
+                        info_message = (
+                            f"Schematic imported and processed successfully!\n\n"
+                            f"📋 Components: {components}\n"
+                            f"🔗 Nets: {nets}\n" 
+                            f"⚡ Connections: {connections}\n"
+                            f"🎯 Component Types: {', '.join(stats.get('component_types', []))}"
+                        )
+                        messagebox.showinfo("Success", info_message)
+                    else:
+                        # Fallback to raw schematic data
+                        self.training_module.set_schematic_data(schematic_data)
+                        components = len(schematic_data.get("components", []))
+                        messagebox.showinfo("Success", 
+                                          f"Schematic imported successfully!\n{components} components detected.")
+                else:
+                    messagebox.showinfo("Success", "Schematic file imported successfully!")
             else:
                 self.update_status("Schematic import cancelled")
         except Exception as e:
@@ -286,7 +337,11 @@ class AICRLMainGUI:
             result = self.training_module.generate_layout()
             if result:
                 self.update_status("Layout generated successfully!")
-                messagebox.showinfo("Success", "Layout generated successfully!")
+                messagebox.showinfo("Success", 
+                                  "Layout generated successfully!\nCheck the output directory for results.")
+                
+                # Notify export module that layout is ready
+                self.export_module.set_layout_available(True)
             else:
                 self.update_status("Layout generation cancelled")
         except Exception as e:

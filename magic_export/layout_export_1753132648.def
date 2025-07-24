@@ -1,0 +1,20 @@
+VERSION 5.8 ;
+DIVIDERCHAR "/" ;
+BUSBITCHARS "[]" ;
+
+DESIGN layout_export_1753132648 ;
+
+UNITS DISTANCE MICRONS 1000 ;
+
+DIEAREA ( 0 0 ) ( 20000 20000 ) ;
+
+COMPONENTS 3 ;
+  - nfet_d1 nfet
+    + PLACED ( 2000 3000 ) N ;
+  - nfet_d2 nfet
+    + PLACED ( 5000 3000 ) N ;
+  - pfet_m1 pfet
+    + PLACED ( 2000 6000 ) N ;
+END COMPONENTS
+
+END DESIGN

@@ -1,0 +1,32 @@
+magic
+tech sky130A
+magscale 1
+timestamp 1753132810
+
+<< mycell >>
+
+<< nwell >>
+rect 2 3 4 5
+rect 5 3 7 5
+<< end >>
+
+<< nfet_label >>
+rlabel nwell 2 3 4 5 0 nfet_d1
+rlabel nwell 5 3 7 5 0 nfet_d2
+<< end >>
+
+<< pwell >>
+rect 2 6 4 8
+<< end >>
+
+<< pfet_label >>
+rlabel pwell 2 6 4 8 0 pfet_m1
+<< end >>
+
+<< metal1 >>
+# Connection from component 1 to 2
+# Connection from component 2 to 3
+<< end >>
+
+<< end >>
+

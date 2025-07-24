@@ -1,0 +1,23 @@
+Magic VLSI Export Report
+==================================================
+
+Export Date: 2025-07-21 17:17:31
+Output File: /home/eli/Documents/Internship/AICRL/magic_export/layout_export_1753132648.def
+Format: DEF
+Technology: sky130
+Units: microns
+
+Export Settings:
+--------------------
+format: def
+technology: sky130
+scale: lambda
+include_labels: True
+include_ports: True
+layer_mapping: default
+grid_snap: True
+units: microns
+include_routing: True
+optimize_layout: False
+validate_drc: True
+generate_report: True

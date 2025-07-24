@@ -1,4 +1,7 @@
 import numpy as np
+import matplotlib
+# Use Agg backend to avoid threading issues with GUI
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.patches import FancyBboxPatch

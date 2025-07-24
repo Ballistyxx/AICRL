@@ -43,15 +43,21 @@ class AnalogICLayoutEnv(gym.Env):
     """
     metadata = {'render.modes': ['human', 'rgb_array']}
 
-    def __init__(self, grid_size=20):
+    def __init__(self, grid_size=20, schematic_data=None):
         super().__init__()
         
         self.grid_size = grid_size
+        self.schematic_data = schematic_data
         
         # Component metadata and connections
-        self.components = self._generate_components()
+        if schematic_data:
+            self.components = self._generate_components_from_schematic(schematic_data)
+            self.connections = self._define_connections_from_schematic(schematic_data)
+        else:
+            self.components = self._generate_components()
+            self.connections = self._define_connections()
+            
         self.num_components = len(self.components)
-        self.connections = self._define_connections()
         
         # Action: place component_id at (x, y)
         self.action_space = spaces.Discrete(self.num_components * grid_size * grid_size)
@@ -74,6 +80,114 @@ class AnalogICLayoutEnv(gym.Env):
     def _define_connections(self):
         """Defines which components should be close to each other (by ID)."""
         return DEFAULT_CONNECTIONS.copy()
+        
+    def _generate_components_from_schematic(self, schematic_data):
+        """Generate components from schematic data."""
+        try:
+            if schematic_data.get("format") == "rl_compatible":
+                # Use the RL-compatible format directly
+                components = schematic_data.get("components", [])
+                # Ensure components have all required fields
+                processed_components = []
+                for comp in components:
+                    processed_comp = {
+                        "name": comp.get("name", f"comp_{comp.get('id', 'unknown')}"),
+                        "id": comp.get("id", len(processed_components) + 1),
+                        "width": comp.get("width", 2),
+                        "height": comp.get("height", 2),
+                        "color": comp.get("color", "gray"),
+                        "can_overlap": comp.get("can_overlap", False),
+                        "type": comp.get("type", "unknown"),
+                        "match_group": comp.get("match_group"),
+                        # Additional fields for constraint handling
+                        "nets": comp.get("nets", []),
+                        "parameters": comp.get("parameters", {}),
+                        "spice_model": comp.get("spice_model", "")
+                    }
+                    processed_components.append(processed_comp)
+                    
+                return processed_components
+            else:
+                # Convert other formats to RL format
+                return self._convert_raw_schematic_to_components(schematic_data)
+                
+        except Exception as e:
+            print(f"Error generating components from schematic: {e}")
+            # Fallback to default components
+            return DEFAULT_COMPONENTS.copy()
+            
+    def _define_connections_from_schematic(self, schematic_data):
+        """Generate connections from schematic data."""
+        try:
+            if schematic_data.get("format") == "rl_compatible":
+                return schematic_data.get("connections", [])
+            else:
+                # Generate connections from raw schematic
+                return self._convert_raw_schematic_to_connections(schematic_data)
+                
+        except Exception as e:
+            print(f"Error generating connections from schematic: {e}")
+            # Fallback to default connections
+            return DEFAULT_CONNECTIONS.copy()
+            
+    def _convert_raw_schematic_to_components(self, schematic_data):
+        """Convert raw schematic data to component format."""
+        components = []
+        component_id_counter = 1
+        
+        raw_components = schematic_data.get("components", [])
+        for raw_comp in raw_components:
+            # Basic conversion logic
+            comp_type = raw_comp.get("type", "unknown")
+            
+            # Map component types
+            if comp_type == "mosfet":
+                rl_type = "nfet"  # Default, should be refined based on model
+                color = "red"
+                size = (2, 2)
+            elif comp_type == "capacitor":
+                rl_type = "cap"
+                color = "green" 
+                size = (1, 1)
+            elif comp_type == "resistor":
+                rl_type = "resistor"
+                color = "orange"
+                size = (1, 2)
+            else:
+                rl_type = "unknown"
+                color = "gray"
+                size = (2, 2)
+                
+            component = {
+                "name": raw_comp.get("instance_name", f"comp_{component_id_counter}"),
+                "id": component_id_counter,
+                "width": size[0],
+                "height": size[1],
+                "color": color,
+                "can_overlap": rl_type in ["cap", "resistor"],
+                "type": rl_type,
+                "match_group": None
+            }
+            
+            components.append(component)
+            component_id_counter += 1
+            
+        return components if components else DEFAULT_COMPONENTS.copy()
+        
+    def _convert_raw_schematic_to_connections(self, schematic_data):
+        """Convert raw schematic data to connections."""
+        # Basic connection generation from nets
+        connections = []
+        nets = schematic_data.get("nets", [])
+        components = schematic_data.get("components", [])
+        
+        # This is a simplified approach - in practice would need more sophisticated net analysis
+        if len(components) >= 2:
+            # Connect adjacent components as a simple heuristic
+            for i in range(len(components) - 1):
+                connections.append((i + 1, i + 2))
+                
+        return connections if connections else DEFAULT_CONNECTIONS.copy()
 
     def _get_action_mask(self):
         """Generates a mask of valid actions."""
@@ -229,6 +343,7 @@ class AnalogICLayoutEnv(gym.Env):
                 center2 = (x2 + comp2["height"] / 2, y2 + comp2["width"] / 2)
                 
                 # Reward close placement of connected components
+                # TODO: make connected components closer based on continuous function, rather than discrete value
                 dist = abs(center1[0] - center2[0]) + abs(center1[1] - center2[1])
                 if dist <= 4:  # Close enough
                     reward += REWARD_WEIGHTS["incremental_connectivity"]

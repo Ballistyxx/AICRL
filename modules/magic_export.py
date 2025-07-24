@@ -398,7 +398,7 @@ class MagicExportModule:
             defaultextension=default_ext,
             filetypes=filetypes,
             initialdir=output_dir,
-            initialname=f"layout_export_{int(time.time())}{default_ext}"
+            initialfile=f"layout_export_{int(time.time())}{default_ext}"
         )
         
         return filename if filename else None
@@ -568,3 +568,11 @@ class MagicExportModule:
         """Get the current export settings."""
         self.update_export_settings()
         return self.export_settings.copy()
+        
+    def set_layout_available(self, available: bool):
+        """Notify the export module that a layout is available."""
+        if available:
+            self.add_export_log("Layout generation completed - ready for export")
+            self.export_status_var.set("Layout ready for export")
+        else:
+            self.export_status_var.set("No layout available")
